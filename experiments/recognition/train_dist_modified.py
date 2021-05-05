@@ -11,7 +11,7 @@ import time
 import argparse
 import numpy as np
 from tqdm import tqdm
-import mmcv
+from mmcv.runner import get_dist_info, init_dist
 
 import torch
 import torch.nn as nn
@@ -90,8 +90,8 @@ class Options():
         # distributed
         parser.add_argument('--world-size', default=1, type=int,
                             help='number of nodes for distributed training')
-        parser.add_argument('--rank', default=0, type=int,
-                            help='node rank for distributed training')
+        # parser.add_argument('--rank', default=0, type=int,
+        #                     help='node rank for distributed training')
         parser.add_argument('--dist-url', default='tcp://localhost:23456', type=str,
                             help='url used to set up distributed training')
         parser.add_argument('--dist-backend', default='nccl', type=str,
@@ -112,21 +112,28 @@ def main():
     ngpus_per_node = torch.cuda.device_count()
     args.world_size = ngpus_per_node * args.world_size
     args.lr = args.lr * args.world_size
-    mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
+    main_worker(ngpus_per_node, args)
+    # mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
 
 # global variable
 best_pred = 0.0
 acclist_train = []
 acclist_val = []
 
-def main_worker(gpu, ngpus_per_node, args):
-    args.gpu = gpu
-    args.rank = args.rank * ngpus_per_node + gpu
+def main_worker(ngpus_per_node, args):
+
+    init_dist('slurm', backend='nccl')
+    rank, world_size = get_dist_info()
+    proc_id = int(os.environ['SLURM_PROCID'])
+    num_gpus = torch.cuda.device_count()
+    args.gpu = proc_id % num_gpus
+    args.rank = rank
+    
     print('rank: {} / {}'.format(args.rank, args.world_size))
-    dist.init_process_group(backend=args.dist_backend,
-                            init_method=args.dist_url,
-                            world_size=args.world_size,
-                            rank=args.rank)
+    # dist.init_process_group(backend=args.dist_backend,
+    #                         init_method=args.dist_url,
+    #                         world_size=args.world_size,
+    #                         rank=args.rank)
     torch.cuda.set_device(args.gpu)
     # init the args
     global best_pred, acclist_train, acclist_val
